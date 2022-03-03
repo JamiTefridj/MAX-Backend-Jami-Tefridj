@@ -1,8 +1,9 @@
-from fileinput import filename
+
 from statistics import mode
 import sys
 import logging
 import os
+from datetime import date
 import mysql_config
 import pymysql
 import re
@@ -10,6 +11,7 @@ import re
 """
 NOTES: 1. Remember to use this as docstring first and foremost
         2. Running list of arg parse params
+            I. --p --path (file with full path, 1st Param)
             a. --e --env (dev,qa,prod)
             b. --f --file-extension (default txt)
             c. --multi MULTIPLE FILES STILL NEED TO DESIGN
@@ -17,9 +19,76 @@ NOTES: 1. Remember to use this as docstring first and foremost
         4. FUNCTIONS WITH TRY CATCH AND ERROR HANDLING
 """
 print("STARTING")
+#FINISHED METHODS
+def parse_data(rest_of_file, table_name):
+    #Create Clean Load File:
+    #Date Time for Outgoing File Naming -- Enhancement use date time in order to handle multiple files in a day
+    # NEED TO ADD OUTGOIN DIR IN PROJECT
+    today = date.today()
+    str_today = today.strftime('%Y_%m_%d')
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    load_file = dir_path + '\\outgoing-files\\' + table_name + f'_{str_today}' 
+    record_count = 0
 
+    with open(load_file, mode='w', encoding="utf-8") as writer: 
+        for record in rest_of_file:
+            #skipping non data entries
+            if record[:7] == '##legal':
+                continue
+            
+            # clean_record = re.sub(r'[\x01]',',',record) # replace commas
+            # row_entry = re.sub(r'[\x02]','',clean_record) # remove end characters
+            writer.write(record)
+            record_count += 1
+
+    logger.info(f'Wrote output file {load_file} with {record_count} records')
+    print(f'Wrote output file {load_file} with {record_count} records')
+
+    return load_file
+
+
+def connect_db(host,user,password,database):
+    # Connect to MySQL
+    try:
+        conn = pymysql.connect(host=host, user=user, password=password, database=database, connect_timeout=5)
+    except BaseException  as e:
+            logger.error(f'An exception occured: {e}')
+            sys.exit()
+
+    logger.info("SUCCESS: Connection to MySQL instance succeeded")
+    return conn
+
+
+def create_ddl_str(table_name, field_list, db_type_list):
+    # Create DDL SQL 
+    # Possible Expansion is handling multiple tables in create statement
+    # -- Assumption -- that field and db_type list would always be same length, if time allows check for it
+
+    field_len = len(field_list)
+    i = 0
+    
+    try:
+        ddl = f'CREATE TABLE `{table_name}`('
+        while i < field_len:
+            ddl+='\n `' + field_list[(i)] + '` '+ db_type_list[i]+','
+            i+=1
+        ddl+='\nPRIMARY KEY (`' + pk + '`)'
+        ddl+=');'
+
+        logger.info(f'DDL Created for {table_name}')
+        logger.info(ddl)
+
+    except BaseException  as e:
+        logger.error(f'An exception occured: {e}')
+        sys.exit()
+        
+
+    return ddl
+
+################################################################################
 # Read Command Line Inputs
 input_file = sys.argv[1]
+table_name = str(os.path.basename(input_file)).replace('.txt','')
 
 #MySQL settings
 
@@ -33,9 +102,6 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Parse File
-print(input_file)
-
-table_name = str(input_file).replace('.txt','') #Would want to make this smartere to read other file extensions --SET AS PARAMATER IN CLI
 
 with open(input_file, mode='r', encoding="utf-8") as reader:
     tbl_info = reader.readlines()
@@ -54,43 +120,36 @@ db_types = clean_types.replace('dbTypes:', '')
 
 # iterate the fields to list on delim
 field_list = clean_fields.split('\x01') 
-db_types_list = db_types.split('\x01') 
+db_type_list = db_types.split('\x01') 
 
-# Possible Expansion is handling multiple tables in create statement
-# -- Assumption -- that field and db_type list would always be same length
-field_len = len(field_list)
-i = 0
+load_file = parse_data(rest_of_file, table_name)
 
-# Create DDL SQL 
-ddl = f'CREATE TABLE `{table_name}`('
-while i < field_len:
-    ddl+='\n `' + field_list[(i)] + '` '+ db_types_list[i]+','
-    i+=1
-ddl+='\nPRIMARY KEY (`' + pk + '`)'
-ddl+=');'
+conn = connect_db(mysql_host,name,password,db_name)
 
-logger.info(f'DDL Created for {table_name}')
-logger.info(ddl)
-print(ddl)
-
-#CSV File to make into function
-rest_of_file
-
-# Connect to MySQL
-try:
-    conn = pymysql.connect(host=mysql_host, user=name, password=password, database=db_name, connect_timeout=5)
-    print(conn)
-    conn.close()
-    print(conn)
-except:
-    # NEED BETTER ERROR LOGGING for REAL EXAMPLES
-    logger.error("ERROR: Unexpected error: Could not connect to MySQL instance.")
-    sys.exit()
-
-logger.info("SUCCESS: Connection to MySQL instance succeeded")
+ddl = create_ddl_str(table_name, field_list, db_type_list)
 
 # Create Table
+# NEED TO WRAP IN CHECK TO SEE IF THE TABLE ALREADY EXISTS
+try:
+    cursor = conn.cursor()
+    results = cursor.execute(ddl)
+    logger.info(f'Here are the results: f{results}')
+except BaseException  as e:
+    logger.error(f'An exception occured: {e}')
+    sys.exit()
+
+logger.info(f"SUCCESS: Created Table {table_name}")
 
 # Insert Data with Load
+try:
+    load_data = f"""LOAD DATA LOCAL INFILE {load_file} into table {table_name} 
+                    FIELDS TERMINATED BY '\x01' 
+                    LINES TERMINATED BY '\x02';"""
+    results_load = cursor.execute(load_data)
+    logger.info(f'Here are the results: f{results}')
+    print(f'Here are the results: f{results}')
+except BaseException  as e:
+    logger.error(f'An exception occured: {e}')
+    sys.exit()
 
 # Return Load Numbers and Date Time 
