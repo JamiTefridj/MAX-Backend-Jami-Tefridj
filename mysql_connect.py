@@ -27,10 +27,11 @@ def parse_data(rest_of_file, table_name):
     today = date.today()
     str_today = today.strftime('%Y_%m_%d')
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    load_file = dir_path + '\\outgoing-files\\' + table_name + f'_{str_today}' 
+    full_file =  dir_path + '\\outgoing-files\\' + table_name + f'_{str_today}'
+    load_file = 'outgoing-files/' + table_name + f'_{str_today}' # would put the outgoing-files // All directories in global config -- make note
     record_count = 0
 
-    with open(load_file, mode='w', encoding="utf-8") as writer: 
+    with open(full_file, mode='w', encoding="utf-8") as writer: 
         for record in rest_of_file:
             #skipping non data entries
             if record[:7] == '##legal':
@@ -47,10 +48,10 @@ def parse_data(rest_of_file, table_name):
     return load_file
 
 
-def connect_db(host,user,password,database):
+def connect_db(host,user,password,database): # Make it take custom args that can be passed into connect
     # Connect to MySQL
     try:
-        conn = pymysql.connect(host=host, user=user, password=password, database=database, connect_timeout=5)
+        conn = pymysql.connect(host=host, user=user, password=password, database=database, connect_timeout=5, local_infile=True)
     except BaseException  as e:
             logger.error(f'An exception occured: {e}')
             sys.exit()
@@ -84,6 +85,20 @@ def create_ddl_str(table_name, field_list, db_type_list):
         
 
     return ddl
+
+def create_table(conn, table_name, ddl, logger):
+    # Create Table
+    # NEED TO WRAP IN CHECK TO SEE IF THE TABLE ALREADY EXISTS
+    try:
+        cursor = conn.cursor()
+        results = cursor.execute(ddl)
+        logger.info(f'Here are the results: f{results}')
+    except BaseException  as e:
+        logger.error(f'An exception occured: {e}')
+        sys.exit()
+
+    cursor.close()
+    logger.info(f"SUCCESS: Created Table {table_name}")
 
 ################################################################################
 # Read Command Line Inputs
@@ -126,30 +141,23 @@ load_file = parse_data(rest_of_file, table_name)
 
 conn = connect_db(mysql_host,name,password,db_name)
 
-ddl = create_ddl_str(table_name, field_list, db_type_list)
+# ddl = create_ddl_str(table_name, field_list, db_type_list)
 
-# Create Table
-# NEED TO WRAP IN CHECK TO SEE IF THE TABLE ALREADY EXISTS
-try:
-    cursor = conn.cursor()
-    results = cursor.execute(ddl)
-    logger.info(f'Here are the results: f{results}')
-except BaseException  as e:
-    logger.error(f'An exception occured: {e}')
-    sys.exit()
+# create_table(conn,table_name,ddl,logger)
 
-logger.info(f"SUCCESS: Created Table {table_name}")
+def load_data(conn,load_file,table_name, logger):
+    # Insert Data with Load
+    try:
+        cursor = conn.cursor()
+        load_sql = f"""LOAD DATA LOCAL INFILE '{load_file}' into table {table_name} FIELDS TERMINATED BY '\x01' LINES TERMINATED BY '\x02';"""
+        print(load_sql)
+        results_load = cursor.execute(load_sql)
+        logger.info(f'Here are the results: f{results_load}')
+        print(f'Here are the results: f{results_load}')
+    except BaseException  as e:
+        logger.error(f'An exception occured: {e}')
+        sys.exit()
 
-# Insert Data with Load
-try:
-    load_data = f"""LOAD DATA LOCAL INFILE {load_file} into table {table_name} 
-                    FIELDS TERMINATED BY '\x01' 
-                    LINES TERMINATED BY '\x02';"""
-    results_load = cursor.execute(load_data)
-    logger.info(f'Here are the results: f{results}')
-    print(f'Here are the results: f{results}')
-except BaseException  as e:
-    logger.error(f'An exception occured: {e}')
-    sys.exit()
-
-# Return Load Numbers and Date Time 
+    cursor.close()
+    # Return Load Numbers and Date Time 
+load_data(conn,load_file,table_name, logger)
