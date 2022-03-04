@@ -28,10 +28,11 @@ def parse_data(rest_of_file, table_name):
     str_today = today.strftime('%Y_%m_%d')
     dir_path = os.path.dirname(os.path.realpath(__file__))
     full_file =  dir_path + '\\outgoing-files\\' + table_name + f'_{str_today}'
-    load_file = 'outgoing-files/' + table_name + f'_{str_today}' # would put the outgoing-files // All directories in global config -- make note
+    # load_file = 'outgoing-files/' + table_name + f'_{str_today}' # would put the outgoing-files // All directories in global config -- make note
+    load_file = table_name + f'_{str_today}' # would put the outgoing-files // All directories in global config -- make note
     record_count = 0
 
-    with open(full_file, mode='w', encoding="utf-8") as writer: 
+    with open(load_file, mode='w', encoding="utf-8") as writer: 
         for record in rest_of_file:
             #skipping non data entries
             if record[:7] == '##legal':
@@ -41,7 +42,7 @@ def parse_data(rest_of_file, table_name):
             # row_entry = re.sub(r'[\x02]','',clean_record) # remove end characters
             writer.write(record)
             record_count += 1
-
+    os.chmod(load_file,0o777)
     logger.info(f'Wrote output file {load_file} with {record_count} records')
     print(f'Wrote output file {load_file} with {record_count} records')
 
@@ -137,21 +138,23 @@ db_types = clean_types.replace('dbTypes:', '')
 field_list = clean_fields.split('\x01') 
 db_type_list = db_types.split('\x01') 
 
-load_file = parse_data(rest_of_file, table_name)
-
+# load_file = parse_data(rest_of_file, table_name)
+load_file = ''
 conn = connect_db(mysql_host,name,password,db_name)
 
-# ddl = create_ddl_str(table_name, field_list, db_type_list)
+ddl = create_ddl_str(table_name, field_list, db_type_list)
 
-# create_table(conn,table_name,ddl,logger)
+create_table(conn,table_name,ddl,logger)
 
 def load_data(conn,load_file,table_name, logger):
     # Insert Data with Load
     try:
         cursor = conn.cursor()
-        load_sql = f"""LOAD DATA LOCAL INFILE '{load_file}' into table {table_name} FIELDS TERMINATED BY '\x01' LINES TERMINATED BY '\x02';"""
+        load_sql = f"""LOAD DATA LOCAL INFILE 'E:/Downloads/MAX-Project-Backend-Data/MAX-Backend-Jami-Tefridj/artist_2022_03_03' into table artist CHARACTER SET 'UTF8' FIELDS TERMINATED BY X'01' LINES TERMINATED BY '\n';"""
+        # load_sql = f"""LOAD DATA LOCAL INFILE 'E:/Downloads/MAX-Project-Backend-Data/MAX-Backend-Jami-Tefridj/artist_2022_03_03' into table artist CHARACTER SET 'UTF8' FIELDS TERMINATED BY ',' LINES TERMINATED BY '|';"""
         print(load_sql)
         results_load = cursor.execute(load_sql)
+        conn.commit()
         logger.info(f'Here are the results: f{results_load}')
         print(f'Here are the results: f{results_load}')
     except BaseException  as e:
